@@ -36,7 +36,7 @@ export class GoogleSheetsService {
     try {
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId: process.env.GOOGLE_SHEETS_SHEET_ID!,
-        range: 'A:K', // A列からK列まで（11列）
+        range: '営業リスト!A:K', // A列からK列まで（11列）
       });
 
       const rows = response.data.values;

@@ -1,0 +1,1327 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "あなたはDataForSEOのGoogle Jobs APIを利用して、求人情報を取得するAIエージェントです。\n以下の手順を必ず順番通りに実行してください。\nキーワードは47都道府県をいっこ、ランダムにそして、さらにそこ業種や職種をいれて取得件数は30です。\n\n【手順】\n1. 「jobs/task_post」エンドポイントを使って求人検索タスクを作成します。\n   - パラメータ: keyword（必須）, location_code（固定:2392）, language_code（固定:\"ja\"）, depth（最大取得件数）\n   - keyword と depth はユーザーから取得します。\n   - タスクIDはレスポンスの tasks[0].id です。\n\n2. 「jobs/tasks_ready」エンドポイントを使って、上記で作成したタスクが ready になるまでポーリングします。\n   - ready = false の場合は、数秒待って再試行してください。\n\n3. タスクが ready になったら「jobs/task_get/advanced/{task_id}」エンドポイントを使って求人結果を取得します。\n\n【出力フォーマット】\n必ず以下のJSON形式で出力してください。\n\n{\n  \"items\": [\n    {\n      \"title\": \"求人タイトル\",\n      \"employer_name\": \"企業名\",\n      \"location\": \"勤務地\",\n      \"salary\": \"給与\",\n      \"contract_type\": \"雇用形態\",\n      \"source_url\": \"求人詳細URL\",\n      \"timestamp\": \"投稿日\"\n    }\n  ]\n}\n\n【入力例】\n- keyword: \"任意の自分で考えたものを入れてください。\"\n- location_code: 2392\n- language_code: \"ja\"\n- depth: 20\n最後の出力は次のJSONオブジェクトのみを返すこと。説明・注釈・コードフェンスは禁止：\n{\"items\":[{...}]}\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        1104,
+        1632
+      ],
+      "id": "d29e29e0-a57e-4cb8-8b33-2c669064684d",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        960,
+        1872
+      ],
+      "id": "20ebd255-f5e5-4044-8982-fc9802e56dec",
+      "name": "Google Gemini Chat Model2",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "GGSgjqrCtJJkSZRK",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "DataForSEO Google Jobs のタスクを新規作成します。\nユーザーが入力した keyword, location_code, language_code, depth を利用し、\n求人検索を実行するためのタスクを発行します。\n\n- 入力：\n    - keyword（検索キーワード、例: \"Webエンジニア 求人\"）\n    - location_code（地域コード、例: 2392）\n    - language_code（言語コード、例: \"ja\"）\n    - depth（取得する件数、例: 20）\n- 出力：\n    - tasks[0].id（後続の tasks_ready, task_get で使用）\n",
+        "method": "POST",
+        "url": "=https://api.dataforseo.com/v3/serp/google/jobs/task_post",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=[\n  {\n    \"keyword\": \"{{$fromAI('keyword','検索キーワード','string','求人募集')}}\",\n    \"location_code\": 2392,\n    \"language_code\": \"ja\",\n    \"depth\": {{$fromAI('depth','取得件数','number',20)}}\n  }\n]\n",
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1104,
+        1872
+      ],
+      "id": "eff4bf62-92e4-46cd-a7d8-62c4e72c6788",
+      "name": "task_post",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "WTxImf1WmsstL1JE",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "DataForSEOのGoogle Jobsタスクのステータスを確認します。\ntask_postで作成したタスクIDがreadyになるまで数秒ごとに再試行してください。\n- ready = false → 数秒待機 → 再試行\n- ready = true → task_get に進む\n",
+        "url": "https://api.dataforseo.com/v3/serp/google/jobs/tasks_ready",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1248,
+        1872
+      ],
+      "id": "f4b2569c-a18d-40eb-9ec4-4e4a951ff1be",
+      "name": "tasks_ready",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "WTxImf1WmsstL1JE",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "DataForSEO Google Jobs APIからタスク結果を取得します。\ntask_postで得た task_id を利用し、求人データを取得します。\nレスポンスの items 配列から以下のフィールドを抽出してください：\ntitle, employer_name, location, salary, contract_type, source_url, timestamp。\n",
+        "url": "=https://api.dataforseo.com/v3/serp/google/jobs/task_get/advanced/{{$fromAI('task_id','task_postで返ったID')}}\n",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1376,
+        1872
+      ],
+      "id": "f800e6db-fe6d-4f08-8e08-ff427d1858c2",
+      "name": "task_get",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "WTxImf1WmsstL1JE",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1hUNT3r36kH_ADgHdmHDhVhlVlJ-huSCg4Blq5X8TO0Q",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 246543625,
+          "mode": "list",
+          "cachedResultName": "営業リスト",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1hUNT3r36kH_ADgHdmHDhVhlVlJ-huSCg4Blq5X8TO0Q/edit#gid=246543625"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ウェブサイト": "={{$fromAI('url','ウェブサイト','string')}}",
+            "住所": "={{$fromAI('address','所在地','string')}}",
+            "電話番号": "={{$fromAI('phone','電話','string')}}",
+            "メール": "={{$fromAI('email','メール','string')}}",
+            "企業名": "={{$fromAI('company','企業名','string')}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "企業名",
+              "displayName": "企業名",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "住所",
+              "displayName": "住所",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "電話番号",
+              "displayName": "電話番号",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ウェブサイト",
+              "displayName": "ウェブサイト",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "メール",
+              "displayName": "メール",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "評価",
+              "displayName": "評価",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "レビュー数",
+              "displayName": "レビュー数",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "カテゴリ",
+              "displayName": "カテゴリ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "検索条件",
+              "displayName": "検索条件",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "地域",
+              "displayName": "地域",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "取得日時",
+              "displayName": "取得日時",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "unique_key",
+              "displayName": "unique_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        3152,
+        1872
+      ],
+      "id": "cb71fc52-01a2-458f-a656-ce296ca72b19",
+      "name": "Append row in sheet in Google Sheets1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "it1upZivnpGYNG1z",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 入力: [{ json: { output: \"```json ... ```\" } }, ...]\n// 出力: [{json:{title,company,location,salary,type,url,posted_at}}, …]\n\nfunction extractJson(text) {\n  if (typeof text !== 'string') return null;\n  // 1) コードフェンス除去\n  let t = text.replace(/^\\s*```(?:json)?\\s*/i, '').replace(/\\s*```\\s*$/,'').trim();\n  // 2) 念のため { ... } 範囲だけ抜き出し\n  const start = t.indexOf('{');\n  const end = t.lastIndexOf('}');\n  if (start === -1 || end === -1) return null;\n  try {\n    return JSON.parse(t.slice(start, end + 1));\n  } catch {\n    return null;\n  }\n}\n\nconst results = [];\n\nfor (const item of $input.all()) {\n  const payload = extractJson(item.json.output);\n  if (!payload || !Array.isArray(payload.items)) continue;\n\n  for (const x of payload.items) {\n    // \"2025-09-02 09:05:57 +00:00\" → \"2025-09-02T09:05:57Z\"\n    const postedISO = x.timestamp\n      ? x.timestamp.replace(' ', 'T').replace(' +00:00', 'Z')\n      : null;\n\n    results.push({\n      json: {\n        title: x.title ?? null,\n        company: x.employer_name ?? null,\n        location: x.location ?? null,\n        salary: x.salary ?? null,\n        type: x.contract_type ?? null,\n        url: x.source_url ?? null,\n        posted_at: postedISO,\n      },\n    });\n  }\n}\n\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        1632
+      ],
+      "id": "c8b22c7f-9804-4662-8716-a3870e77dacb",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        2688,
+        1872
+      ],
+      "id": "82341cd1-444e-42f7-9e2d-ed53ed82847e",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "GGSgjqrCtJJkSZRK",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.company }} {{ $json.location }}",
+        "options": {
+          "systemMessage": "あなたは n8n 上で動作する Tools Agent です。用意された「ツール」だけを使って処理し、重複でないレコードのみ Google Sheets に1件ずつ保存します。\n\n【利用できるツール】\n- SERP: Google Organic live/advanced（HTTP Request）\n- On-Page: Content Parsing live（HTTP Request）\n- Google Sheets: Append Row（Sheets）\n\n【目的】\n入力の company と location を用いて公式サイト（または関連ページ）から会社名・所在地・メール・電話を抽出し、重複でなければ Google Sheets に追記します。\n\n【上流から渡されるフィールド】\n- company（例：アイリスオーヤマ株式会社）\n- location（例：東京都）\n- ※必要に応じて title / url / posted_at / salary も参照可\n\n【厳守ルール】\n- 推測で値を作らない。必ずツール呼び出しで取得する。\n- ツールの入力は「必須フィールドが空の場合は呼ばない」。空や不正型での呼び出し禁止（schema不一致の原因）。\n- `$fromAI()` を使う各ツール入力は、**正しい型**と**既定値**を定義して組み立てる（例：string/number/bool、デフォルト空文字や数値）。  \n- 出力は内部処理用 JSON でよい（説明文やコードフェンスは不要）。\n\n【手順】\n1) 公式サイト候補の取得（SERP）\n  - 検索語例：「{company} {location} 公式 OR 会社概要 OR お問い合わせ OR プライバシーポリシー OR 特定商取引法」\n  - 既定：location_code=2392, language_code=\"ja\", device=\"desktop\", os=\"windows\", depth=10\n  - レスポンス items から URL 候補を収集し、以下を優先して最大3件に絞る：\n    a) 会社名に近いドメイン\n    b) タイトル/パンくずに「会社概要/お問い合わせ/プライバシー/特商法」\n    c) 求人媒体などの非公式は原則除外（公式優先）\n\n2) ページ内容解析（On-Page）\n  - 候補URLごとに呼び出し、content / headings / table_content / links を取得。\n  - まず現在ページから email / phone / address / company_name を抽出。\n  - 見つからない場合、links から「会社概要/お問い合わせ/プライバシー/特商法/会社情報」等を最大3件まで辿って同様に抽出（再帰は1階層まで）。\n\n3) 情報抽出規則\n  - 会社名：会社名/販売業者/運営会社/事業者名/商号\n  - 住所：所在地/住所/本社所在地\n  - メール：正規表現 `[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}`\n  - 電話（日本）：`0\\d{1,4}-\\d{1,4}-\\d{3,4}`\n  - table_content に「項目: 値」形式があれば優先\n  - 複数候補は「公式ドメイン配下」かつ「会社概要/特商法/お問い合わせ」由来を優先\n  - 1社につき `{company, location, url, email, phone, address}` を作る。`url` は連絡先が見つかったページ（無ければ公式トップ）\n\n4) 重複判定と保存方針\n  - （上流で key=company____location による除外済み前提）同一ドメインや同一 `company×location` と判断したら **Append しない**。\n  - **原則1社につき1回だけ Append**。重複判定に該当する場合は Append をスキップし、最終JSONには結果を残す。\n\n5) エラー/再試行\n  - SERPやOn-Pageが空/失敗なら次候補URLで再試行（最大3候補）。必須入力が満たせない場合はツールを呼ばずに終了し、理由をJSONに含める。\n\n【ツール入力の組み立てルール（重要）】\n- **空の入力でツールを呼ばない**。`keyword` や `target_url` が空文字/undefinedならスキップ。\n- `$fromAI()` は **型と既定値を明示**：例  \n  - `keyword`: string / 既定 `\"\"`  \n  - `location_code`: number / 既定 `2392`  \n  - `depth`: number / 既定 `10`  \n  - `target_url`: string / 既定 `\"\"`\n- Google Sheets へ渡す `company` と `location` は **上流からの値をそのまま使用**（AIで推測・上書きしない）。Web/電話/メール/住所のみ抽出結果を渡す。\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        2688,
+        1600
+      ],
+      "id": "f9469c7b-037b-46ac-9b8b-76aea34d340f",
+      "name": "AI Agent2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1c3317b1-ca7b-47e2-b8cf-21ded7bd050a",
+              "name": "key",
+              "value": "={{ String($json.company ?? '').trim().toLowerCase() }}____{{ String($json.location ?? '').trim().toLowerCase() }}\n",
+              "type": "string"
+            },
+            {
+              "id": "029c6b8b-a04e-430a-8cb2-26a08a70af3e",
+              "name": "source",
+              "value": "incoming",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1648,
+        1632
+      ],
+      "id": "48e1db0a-7811-445e-b2ff-61d90a1228dc",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1hUNT3r36kH_ADgHdmHDhVhlVlJ-huSCg4Blq5X8TO0Q",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 246543625,
+          "mode": "list",
+          "cachedResultName": "営業リスト",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1hUNT3r36kH_ADgHdmHDhVhlVlJ-huSCg4Blq5X8TO0Q/edit#gid=246543625"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1792,
+        1408
+      ],
+      "id": "e5d376a0-5617-4ddb-9dc8-1963577cf04f",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "it1upZivnpGYNG1z",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8430b906-a9c2-45f3-ae06-330f58ece77d",
+              "name": "company",
+              "value": "={{ $json[\"企業名\"] }}",
+              "type": "string"
+            },
+            {
+              "id": "2310fc9a-8c38-4b78-971b-c37d2b135bc4",
+              "name": "location",
+              "value": "={{ $json[\"住所\"] }}",
+              "type": "string"
+            },
+            {
+              "id": "35d809d3-3ab1-4825-918a-4f3ea98dc2ab",
+              "name": "key",
+              "value": "={{ String($json.company ?? '').trim().toLowerCase() }}____{{ String($json.location ?? '').trim().toLowerCase() }}\n",
+              "type": "string"
+            },
+            {
+              "id": "49e12b6b-cdc5-4666-856c-c0c72ef37d78",
+              "name": "source",
+              "value": "existing",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2064,
+        1408
+      ],
+      "id": "f46ba6bd-c95a-44a2-80a7-133bebec5427",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1936,
+        1616
+      ],
+      "id": "91fba47c-ffef-4f18-9ebe-dca1232acde6",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "key",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        2112,
+        1616
+      ],
+      "id": "f4a2b169-0c19-432a-9db5-9e0745297ca2",
+      "name": "Remove Duplicates"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b7a2a7b5-ce9d-4580-9576-d667c7bfaf2c",
+              "leftValue": "={{$json.source}}",
+              "rightValue": "incoming",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2288,
+        1616
+      ],
+      "id": "c924b6e2-e0d1-435f-8e9a-3fe8e092c809",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        416,
+        1632
+      ],
+      "id": "7c3a3d4f-c8b0-414c-b575-85da6e6a248a",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.dataforseo.com/v3/serp/google/organic/live/advanced",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=[\n  {\n    \"keyword\": \"{{$fromAI('keyword','検索キーワード','string','株式会社')}}\",\n    \"location_code\": 2392,\n    \"language_code\": \"ja\",\n    \"device\": \"desktop\",\n    \"os\": \"windows\",\n    \"depth\": {{$fromAI('depth','取得件数','number',10)}}\n  }\n]\n",
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        2832,
+        1920
+      ],
+      "id": "ad1e7f49-f9b0-4abb-aaa5-f805644b9d62",
+      "name": "dataforseogoogle",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "WTxImf1WmsstL1JE",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.dataforseo.com/v3/on_page/content_parsing/live",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=[\n  {\n    \"url\": \"{{$fromAI('target_url','解析したいURL','string')}}\",\n    \"enable_javascript\": false\n  }\n]\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        2992,
+        1872
+      ],
+      "id": "7e9990d2-1974-425e-8466-7d717a7e5b28",
+      "name": "search",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "WTxImf1WmsstL1JE",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "371e3f58-cefe-4fcf-8086-7675e686853d",
+              "name": "prompt",
+              "value": "ここのリストは30件取りたいです。",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        624,
+        1632
+      ],
+      "id": "a75f58b2-b0d9-48c3-846c-4fb91bf4c3f4",
+      "name": "Edit Fields2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const PREF_RE = /(北海道|青森県|岩手県|宮城県|秋田県|山形県|福島県|茨城県|栃木県|群馬県|埼玉県|千葉県|東京都|神奈川県|新潟県|富山県|石川県|福井県|山梨県|長野県|岐阜県|静岡県|愛知県|三重県|滋賀県|京都府|大阪府|兵庫県|奈良県|和歌山県|鳥取県|島根県|岡山県|広島県|山口県|徳島県|香川県|愛媛県|高知県|福岡県|佐賀県|長崎県|熊本県|大分県|宮崎県|鹿児島県|沖縄県)/;\n\nreturn items.map(it => {\n  const raw = String(it.json.key || '').normalize('NFKC').replace(/\\r?\\n/g,'');\n  const [c, l=''] = raw.split('____', 2);\n  const company = (c || '').replace(/\\u3000/g,' ').trim();\n  const location = (l || '').replace(/\\u3000/g,' ').replace(/\\s+/g,' ').trim();\n\n  const pref = (location.match(PREF_RE) || [,''])[1] || '';\n  const key = `${company.toLowerCase()}____${(location || pref).toLowerCase()}`;\n\n  it.json.company = company;\n  it.json.location = location;\n  it.json.location_pref = pref;\n  it.json.key = key; // 上書き（正規化）\n  it.json.source = it.json.source || 'incoming';\n  return it;\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2496,
+        1600
+      ],
+      "id": "23dc3706-eedc-44ff-819a-ee1e424c934b",
+      "name": "Code1"
+    }
+  ],
+  "pinData": {
+    "Edit Fields1": [
+      {
+        "json": {
+          "company": "THE DENTAL",
+          "location": "日本、〒153-0043 東京都目黒区東山３丁目１３−６ 1F",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社LIFULL（ライフル）",
+          "location": "日本、〒102-0083 東京都千代田区麹町１丁目４−４",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "ハウジング･ジャパン㈱",
+          "location": "日本、〒106-0041 東京都港区麻布台１丁目１１−９ BPRプレイス神谷町 7F",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "Nihon Agent, Inc (wagaya Japan)",
+          "location": "日本、〒100-0005 東京都千代田区丸の内１丁目６−５ 丸の内北口ビルディング 8階 Kitaguchi building, 8th floor",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "FEBRUARY CAFE",
+          "location": "日本、〒111-0043 東京都台東区駒形１丁目９−８",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "note",
+          "location": "B1, ２丁目-１０-１５ 渋谷 渋谷区 東京都 150-0002 日本",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "トロワ",
+          "location": "日本、〒111-0042 東京都台東区寿３丁目１０−５",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社ナカノ",
+          "location": "富山県滑川市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社呉竹荘",
+          "location": "静岡県湖西市 (他 4 件)",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社キタムラ塗装",
+          "location": "愛知県弥富市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社アレンジ",
+          "location": "石川県金沢市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社修明",
+          "location": "東京都多摩市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "Ｓｋｙ株式会社",
+          "location": "愛知県名古屋市 (他 2 件)",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社東建工営",
+          "location": "宮城県名取市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社むすび",
+          "location": "東京都葛飾区",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "有限会社葉山電設",
+          "location": "神奈川県横浜市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "銀のさら・釜寅 山梨中央市店",
+          "location": "山梨県中央市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社ナカノ",
+          "location": "富山県滑川市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社呉竹荘",
+          "location": "静岡県湖西市 (他 4 件)",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社キタムラ塗装",
+          "location": "愛知県弥富市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社アレンジ",
+          "location": "石川県金沢市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "Ｓｋｙ株式会社",
+          "location": "愛知県名古屋市 (他 2 件)",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社修明",
+          "location": "東京都多摩市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社心デザイン",
+          "location": "愛知県名古屋市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社encrew",
+          "location": "山形県村山市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "有限会社葉山電設",
+          "location": "神奈川県横浜市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "銀のさら・釜寅 山梨中央市店",
+          "location": "山梨県中央市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社ナカノ",
+          "location": "富山県滑川市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社ナカノ",
+          "location": "富山県滑川市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "企業名: 日東レンタル株式会社, 住所: 栃木県小山市駅東通り2-40-6, メールアドレス: N/A",
+          "location": "",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "〒323-0022 栃木県小山市駅東通り二丁目40番6号",
+          "location": "0285-25-1245",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "〒323-0022 栃木県小山市駅東通り二丁目40番6号",
+          "location": "0285-25-1245",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "富山県滑川市改養寺10-1",
+          "location": "(076) 474-1851",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "富山県滑川市改養寺10-1",
+          "location": "(076) 474-1851",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "東京都新宿区西新宿1-25-1 新宿センタービル32階",
+          "location": "不明",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "神奈川県横須賀市",
+          "location": "情報なし",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "栃木県小山市駅東通り二丁目40番6号",
+          "location": "0285-25-1245",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "〒154-0004 東京都世田谷区太子堂4-1-1 キャロットタワー 14階",
+          "location": "03-6453-2717",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "東京都港区浜松町2-4-1 世界貿易センタービルディング南館 16階",
+          "location": "",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "〒189-0025 東京都東村山市廻田町3-6-9",
+          "location": "042-392-1976",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "日東レンタル株式会社",
+          "location": "栃木県小山市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社ウェルビーン",
+          "location": "長野県茅野市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "明光化成工業株式会社",
+          "location": "岐阜県恵那市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社キャリア",
+          "location": "茨城県ひたちなか市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社ナカノ",
+          "location": "富山県滑川市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社キャリア",
+          "location": "茨城県ひたちなか市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社キタムラ塗装",
+          "location": "愛知県弥富市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社バイトレ",
+          "location": "東京都青梅市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "CAPS 株式会社",
+          "location": "東京都港区",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "パーソルテンプスタッフ株式会社",
+          "location": "東京都港区",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "長野県信用農業協同組合連合会",
+          "location": "長野県伊那市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社アレンジ",
+          "location": "石川県金沢市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "有限会社葉山電設",
+          "location": "神奈川県横浜市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "あずみ苑 東松山",
+          "location": "埼玉県東松山市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社プレナス　ほっともっと ほっともっと　東バイパス店　76101",
+          "location": "茨城県常陸太田市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社キャリア",
+          "location": "長野県上田市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社綜合キャリアオプション　全国",
+          "location": "石川県金沢市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "Ｓｋｙ株式会社",
+          "location": "愛知県名古屋市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社キャリア",
+          "location": "茨城県笠間市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "株式会社バズリアズ",
+          "location": "愛知県名古屋市",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      },
+      {
+        "json": {
+          "company": "{{$fromAI('company','会社名','string')}}",
+          "location": "{{$fromAI('address','所在地','string')}}",
+          "key": " + '____' + ",
+          "source": "existing"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Google Gemini Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "task_post": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "tasks_ready": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "task_get": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet in Google Sheets1": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "dataforseogoogle": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "search": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields2": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "7e5f8c72-738e-4c12-a16c-8c3e9df551d6",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ba22d071e9a5abcf271f8b25ea910ee68330aa9d7fbb8c82e438499be0164ed7"
+  },
+  "id": "nl6t4zMuE14Ta8LX",
+  "tags": []
+}
