@@ -3,7 +3,7 @@
  * Integrates DataForSEO and Brave Search for comprehensive company information extraction and verification
  */
 
-import { GoogleGenerativeAI, FunctionDeclaration, FunctionCallingConfigMode } from '@google/generative-ai';
+import { GoogleGenerativeAI, FunctionDeclaration } from '@google/generative-ai';
 import { DataForSeoService, ContactInfo } from './dataForSeoService';
 import { BraveSearchTool, braveSearchFunctions } from './braveSearchTool';
 
@@ -120,7 +120,7 @@ export class CompanyVerificationService {
         config: {
           toolConfig: {
             functionCallingConfig: {
-              mode: FunctionCallingConfigMode.ANY,
+              mode: 'ANY' as const,
               allowedFunctionNames: [
                 'dataforseo_serp_search',
                 'dataforseo_content_parse', 

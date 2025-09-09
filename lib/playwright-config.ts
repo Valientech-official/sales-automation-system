@@ -9,13 +9,14 @@ import { chromium } from 'playwright';
 export const getPlaywrightBrowser = async () => {
   // Vercel環境の場合
   if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-    const chromium = require('@sparticuz/chromium');
-    const { chromium: playwright } = require('playwright');
+    // Dynamic imports to avoid ESLint issues
+    const chromiumPuppeteer = await import('@sparticuz/chromium');
+    const { chromium: playwright } = await import('playwright');
     
     return await playwright.launch({
-      args: chromium.args,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
+      args: chromiumPuppeteer.default.args,
+      executablePath: await chromiumPuppeteer.default.executablePath(),
+      headless: chromiumPuppeteer.default.headless,
     });
   } 
   
