@@ -43,8 +43,8 @@ class DirectGeminiScraper {
   async init() {
     console.log('🚀 ブラウザ初期化中...')
     this.browser = await chromium.launch({ 
-      headless: false, // デバッグ用
-      slowMo: 500
+      headless: true, // VPS環境対応
+      slowMo: 100
     })
   }
   
