@@ -29,6 +29,7 @@
     "@ai-sdk/google": "^2.0.13",
     "@google-ai/generativelanguage": "^3.4.0",
     "@google/generative-ai": "^0.24.1",
+    "@sparticuz/chromium": "^138.0.2",
     "ai": "^5.0.38",
     "dotenv": "^17.2.2",
     "googleapis": "^159.0.0",
