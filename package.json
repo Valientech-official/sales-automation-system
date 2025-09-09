@@ -1,0 +1,39 @@
+{
+  "name": "sales-automation-system",
+  "version": "1.0.0",
+  "description": "営業リスト自動営業システム - Automated sales outreach system for prospect lists",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\"",
+    "backend:dev": "cd backend && npm run dev",
+    "frontend:dev": "cd frontend && npm run dev",
+    "build": "npm run backend:build && npm run frontend:build",
+    "backend:build": "cd backend && npm run build",
+    "frontend:build": "cd frontend && npm run build",
+    "start": "npm run backend:start",
+    "backend:start": "cd backend && npm start",
+    "test": "npm run backend:test && npm run frontend:test",
+    "backend:test": "cd backend && npm test",
+    "frontend:test": "cd frontend && npm test",
+    "db:migrate": "cd backend && npm run db:migrate",
+    "db:seed": "cd backend && npm run db:seed"
+  },
+  "keywords": [
+    "sales",
+    "automation",
+    "marketing",
+    "crm",
+    "outreach",
+    "email",
+    "linkedin"
+  ],
+  "author": "Valientech Official Team",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "workspaces": [
+    "backend",
+    "frontend"
+  ]
+}
