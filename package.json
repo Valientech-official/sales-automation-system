@@ -7,7 +7,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "build:production": "NODE_ENV=production next build",
+    "start:production": "NODE_ENV=production next start -p 3001",
+    "test:automation": "tsx test-direct-gemini-scraper.ts"
   },
   "keywords": [
     "sales",
@@ -23,11 +26,19 @@
   "author": "Valientech Official Team",
   "license": "MIT",
   "dependencies": {
+    "@ai-sdk/google": "^2.0.13",
     "@google-ai/generativelanguage": "^3.4.0",
+    "@google/generative-ai": "^0.24.1",
+    "ai": "^5.0.38",
+    "dotenv": "^17.2.2",
     "googleapis": "^159.0.0",
+    "llm-scraper": "^1.6.0",
     "next": "15.5.2",
+    "playwright": "^1.55.0",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "tsx": "^4.20.5",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
