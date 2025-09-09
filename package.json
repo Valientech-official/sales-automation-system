@@ -1,6 +1,7 @@
 {
   "name": "sales-automation-system",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "description": "営業リスト自動営業システム - Automated sales outreach system for prospect lists",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,6 +9,19 @@
     "start": "next start",
     "lint": "eslint"
   },
+  "keywords": [
+    "sales",
+    "automation",
+    "marketing",
+    "crm",
+    "outreach",
+    "email",
+    "linkedin",
+    "nextjs",
+    "google-sheets"
+  ],
+  "author": "Valientech Official Team",
+  "license": "MIT",
   "dependencies": {
     "@google-ai/generativelanguage": "^3.4.0",
     "googleapis": "^159.0.0",
