@@ -6,25 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { GoogleGenerativeAI } from '@google/generative-ai'
-import { chromium } from 'playwright'
-
-// Vercel対応Playwright設定（インライン）
-const getPlaywrightBrowser = async () => {
-  if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-    const chromiumPuppeteer = await import('@sparticuz/chromium')
-    const { chromium: playwright } = await import('playwright')
-    
-    return await playwright.launch({
-      args: chromiumPuppeteer.default.args,
-      executablePath: await chromiumPuppeteer.default.executablePath(),
-      headless: chromiumPuppeteer.default.headless,
-    })
-  } 
-  
-  return await chromium.launch({
-    headless: true,
-  })
-}
+import { getPlaywrightBrowser } from '@/lib/playwright-config'
 
 // レスポンススキーマ
 const companySchema = z.object({
