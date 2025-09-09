@@ -1,17 +1,14 @@
 /**
- * 直接Gemini API使用版
- * LLM ScraperのようなPlaywright + AI機能を自作実装
+ * Playwright + Gemini Company Scraper API Endpoint
+ * Vercel serverless function for job-focused company information extraction
  */
 
-import { chromium } from 'playwright'
+import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { GoogleGenerativeAI } from '@google/generative-ai'
-import dotenv from 'dotenv'
+import { getPlaywrightBrowser } from '../../../../../lib/playwright-config'
 
-// 環境変数読み込み
-dotenv.config({ path: '.env.local' })
-
-// 企業情報のスキーマ定義（求人情報対応）
+// レスポンススキーマ
 const companySchema = z.object({
   companyName: z.string().describe("企業の正式名称"),
   phoneNumber: z.string().nullable().optional().describe("代表電話番号または採用連絡先"),
@@ -24,39 +21,29 @@ const companySchema = z.object({
 
 type CompanyInfo = z.infer<typeof companySchema>
 
-class DirectGeminiScraper {
+class VercelGeminiScraper {
   private genAI: GoogleGenerativeAI
   private model: any
-  private browser: any
   
   constructor() {
     this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
     this.model = this.genAI.getGenerativeModel({
       model: 'gemini-1.5-pro',
       generationConfig: {
-        temperature: 0.1, // 一貫性重視
+        temperature: 0.1,
         topP: 0.8,
         maxOutputTokens: 2048
       }
     })
   }
   
-  async init() {
-    console.log('🚀 ブラウザ初期化中...')
-    this.browser = await chromium.launch({ 
-      headless: false, // デバッグ用
-      slowMo: 500
-    })
-  }
-  
   async extractFromHTML(htmlContent: string, companyName: string): Promise<CompanyInfo | null> {
-    // HTMLを短縮（トークン制限対策）
     const cleanedHTML = htmlContent
-      .replace(/<script[\s\S]*?<\/script>/gi, '') // スクリプト削除
-      .replace(/<style[\s\S]*?<\/style>/gi, '')   // スタイル削除
-      .replace(/<!--[\s\S]*?-->/g, '')            // コメント削除
-      .replace(/\s+/g, ' ')                       // 空白正規化
-      .substring(0, 15000) // 15KB制限
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/\s+/g, ' ')
+      .substring(0, 15000)
     
     const prompt = `
 以下のHTMLコンテンツから企業情報を抽出してください。これは求人サイトや採用情報ページのコンテンツです。
@@ -90,13 +77,10 @@ JSON以外は返さないでください:
 `
     
     try {
-      console.log('🤖 Gemini分析中...')
+      console.log('🤖 Gemini分析開始')
       const result = await this.model.generateContent(prompt)
       const responseText = result.response.text()
       
-      console.log('📝 Geminiレスポンス:', responseText.substring(0, 500))
-      
-      // JSONを抽出
       const jsonMatch = responseText.match(/\{[\s\S]*\}/)
       if (!jsonMatch) {
         console.error('❌ JSON形式が見つかりません')
@@ -104,8 +88,6 @@ JSON以外は返さないでください:
       }
       
       const data = JSON.parse(jsonMatch[0])
-      
-      // Zodでバリデーション
       return companySchema.parse(data)
       
     } catch (error) {
@@ -115,13 +97,13 @@ JSON以外は返さないでください:
   }
   
   async searchCompany(companyName: string, location: string = "東京"): Promise<CompanyInfo | null> {
-    const page = await this.browser.newPage()
+    const browser = await getPlaywrightBrowser()
+    const page = await browser.newPage()
     
     try {
       console.log(`🔍 検索開始: ${companyName} (${location})`)
       
-      // DuckDuckGoで検索（より良い結果が得られる）
-      console.log('🦆 DuckDuckGoで検索実行')
+      // DuckDuckGoで求人情報を検索
       await page.goto('https://duckduckgo.com/')
       await page.waitForTimeout(2000)
       
@@ -132,9 +114,7 @@ JSON以外は返さないでください:
       await page.press('input[name="q"]', 'Enter')
       await page.waitForTimeout(5000)
       
-      console.log(`📄 検索結果URL: ${page.url()}`)
-      
-      // 検索結果から最初の企業関連リンクをクリック
+      // 検索結果から最初の求人リンクをクリック
       try {
         const resultLinks = await page.locator('a[data-testid="result-title-a"]').all()
         console.log(`🔗 検索結果リンク数: ${resultLinks.length}`)
@@ -142,19 +122,13 @@ JSON以外は返さないでください:
         if (resultLinks.length > 0) {
           const firstLink = resultLinks[0]
           const linkText = await firstLink.textContent()
-          const linkUrl = await firstLink.getAttribute('href')
-          
-          console.log(`🌐 クリック対象: ${linkText} (${linkUrl})`)
+          console.log(`🌐 クリック対象: ${linkText}`)
           
           await firstLink.click()
           await page.waitForTimeout(5000)
-          
-          console.log(`📄 遷移後URL: ${page.url()}`)
-        } else {
-          console.log('⚠️ 検索結果リンクが見つかりません')
         }
       } catch (e) {
-        console.log('🔄 検索結果リンククリック失敗、検索結果ページを解析')
+        console.log('🔄 検索結果リンククリック失敗')
       }
       
       // ページ内容を取得
@@ -171,94 +145,99 @@ JSON以外は返さないでください:
       return null
     } finally {
       await page.close()
-    }
-  }
-  
-  async testCompany(companyName: string, location: string = "東京") {
-    console.log(`\n📊 テスト: ${companyName}`)
-    console.log('=' .repeat(50))
-    
-    const result = await this.searchCompany(companyName, location)
-    
-    if (result) {
-      console.log('✅ 抽出成功:')
-      console.log(`📋 企業名: ${result.companyName}`)
-      console.log(`📞 電話: ${result.phoneNumber || 'なし'}`)
-      console.log(`📧 メール: ${result.email || 'なし'}`)
-      console.log(`🌐 サイト: ${result.website || 'なし'}`)
-      console.log(`📍 住所: ${result.address || 'なし'}`)
-      console.log(`🏢 業種: ${result.businessType || 'なし'}`)
-      console.log(`🎯 信頼度: ${result.confidence}%`)
-      
-      if (result.confidence >= 70) {
-        console.log('🎉 高信頼度データ - 保存対象')
-      } else {
-        console.log('⚠️ 信頼度不足 - 要改善')
-      }
-    } else {
-      console.log('❌ 情報抽出失敗')
-    }
-    
-    return result
-  }
-  
-  async close() {
-    if (this.browser) {
-      await this.browser.close()
-      console.log('🔐 ブラウザ終了')
+      await browser.close()
     }
   }
 }
 
-// メイン実行
-async function main() {
-  console.log('🌟 Direct Gemini Scraper テスト開始')
-  console.log('=' .repeat(60))
-  
-  const scraper = new DirectGeminiScraper()
+export async function POST(request: NextRequest) {
+  const startTime = Date.now()
   
   try {
-    await scraper.init()
+    console.log('🚀 Playwright + Gemini スクレーパー開始')
     
-    // テストケース（求人が多い有名企業）
-    const testCompanies = [
-      { name: "株式会社リクルート", location: "東京" },
-      { name: "楽天株式会社", location: "東京" },
-      { name: "株式会社メルカリ", location: "東京" }
-    ]
+    const body = await request.json()
+    const { companyName, location = "東京" } = body
     
-    const results: CompanyInfo[] = []
-    
-    for (const company of testCompanies) {
-      const result = await scraper.testCompany(company.name, company.location)
-      
-      if (result && result.confidence >= 70) {
-        results.push(result)
-      }
-      
-      // レート制限対応
-      await new Promise(resolve => setTimeout(resolve, 3000))
+    if (!companyName) {
+      return NextResponse.json({
+        success: false,
+        error: 'companyName is required'
+      }, { status: 400 })
     }
     
-    console.log('\n📊 テスト結果サマリー:')
-    console.log(`✅ 成功: ${results.length}件`)
-    if (results.length > 0) {
-      const avgConfidence = results.reduce((sum, r) => sum + r.confidence, 0) / results.length
-      console.log(`📈 平均信頼度: ${Math.round(avgConfidence)}%`)
+    console.log(`📋 対象企業: ${companyName} (${location})`)
+    
+    const scraper = new VercelGeminiScraper()
+    const result = await scraper.searchCompany(companyName, location)
+    
+    const endTime = Date.now()
+    const executionTime = endTime - startTime
+    
+    if (result) {
+      console.log('✅ 抽出成功')
+      return NextResponse.json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        executionTime: {
+          milliseconds: executionTime,
+          seconds: Math.round(executionTime / 1000)
+        },
+        data: result,
+        source: 'playwright-gemini-scraper'
+      })
+    } else {
+      console.log('❌ 抽出失敗')
+      return NextResponse.json({
+        success: false,
+        timestamp: new Date().toISOString(),
+        executionTime: {
+          milliseconds: executionTime,
+          seconds: Math.round(executionTime / 1000)
+        },
+        error: 'Company information extraction failed',
+        source: 'playwright-gemini-scraper'
+      }, { status: 404 })
     }
     
   } catch (error) {
-    console.error('💥 致命的エラー:', error)
-  } finally {
-    await scraper.close()
+    const endTime = Date.now()
+    const executionTime = endTime - startTime
+    
+    console.error('❌ スクレーパーエラー:', error)
+    
+    return NextResponse.json({
+      success: false,
+      timestamp: new Date().toISOString(),
+      executionTime: {
+        milliseconds: executionTime,
+        seconds: Math.round(executionTime / 1000)
+      },
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        type: error instanceof Error ? error.constructor.name : 'Unknown'
+      },
+      source: 'playwright-gemini-scraper'
+    }, { status: 500 })
+  }
+}
+
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const companyName = searchParams.get('company')
+  const location = searchParams.get('location') || '東京'
+  
+  if (!companyName) {
+    return NextResponse.json({
+      success: false,
+      error: 'company parameter is required'
+    }, { status: 400 })
   }
   
-  console.log('\n🏁 テスト完了')
+  // POSTメソッドと同じ処理を実行
+  return POST(new NextRequest(request.url, {
+    method: 'POST',
+    body: JSON.stringify({ companyName, location }),
+    headers: { 'Content-Type': 'application/json' }
+  }))
 }
-
-// 実行
-if (require.main === module) {
-  main().catch(console.error)
-}
-
-export { DirectGeminiScraper, companySchema, type CompanyInfo }
