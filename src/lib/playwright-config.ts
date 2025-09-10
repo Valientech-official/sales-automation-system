@@ -22,8 +22,9 @@ export const getPlaywrightBrowser = async () => {
   } else {
     // Local development environment - use regular chromium
     return await chromium.launch({
-      headless: true,
-      slowMo: 100 // Add slight delay for debugging
+      headless: false,  // ← ヘッドレス無効でブラウザ画面表示
+      slowMo: 500,      // ← 500ms遅延でゆっくり動作
+      devtools: true    // ← DevTools自動オープン
     })
   }
 }

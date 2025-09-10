@@ -6,8 +6,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { CSVCompanyProcessor } from '@/lib/services/csvCompanyProcessor'
 import { GoogleSheetsService, CSVProcessingResult } from '@/lib/googleSheets'
+import path from 'path'
 
 export const maxDuration = 60 // Vercel Pro: 60秒タイムアウト
+export const revalidate = 0 // キャッシュ無効化でcron実行確実にする
+export const dynamic = 'force-dynamic' // 動的レンダリング強制（cron用）
 
 // Vercel Cron設定
 export const config = {
@@ -18,14 +21,22 @@ export async function GET(request: NextRequest) {
   const startTime = Date.now()
   
   try {
+    const userAgent = request.headers.get('user-agent') || 'unknown'
     console.log('🕐 Cron処理開始:', new Date().toISOString())
+    console.log('🤖 User-Agent:', userAgent)
+    
+    // Vercel Cron の User-Agent チェック
+    const isVercelCron = userAgent.includes('vercel-cron')
+    const isCurlTest = userAgent.includes('curl')
+    console.log('📋 実行元:', isVercelCron ? 'Vercel Cron Job' : isCurlTest ? 'Manual cURL' : 'Unknown')
     
     // スプレッドシートから次のindexを自動計算
     const sheetsService = new GoogleSheetsService()
     const currentIndex = await sheetsService.getNextProcessingIndex('営業リストV2')
     
     const { searchParams } = new URL(request.url)
-    const csvPath = searchParams.get('csv') || './data/01_hokkaido_all_20250829.csv'
+    const defaultCsvFile = searchParams.get('csv') || '01_hokkaido_all_20250829.csv'
+    const csvPath = path.join(process.cwd(), 'public', defaultCsvFile)
     
     console.log(`📋 自動計算された処理対象: ${currentIndex + 1}件目 (index: ${currentIndex})`)
     

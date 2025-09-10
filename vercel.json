@@ -2,18 +2,18 @@
   "crons": [
     {
       "path": "/api/cron-process",
-      "schedule": "*/2 * * * *"
+      "schedule": "*/5 * * * *"
     }
   ],
   "functions": {
     "src/app/api/cron-process/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 800
     },
     "src/app/api/scrape-company/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 800
     },
     "src/app/api/process-csv/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 800
     }
   }
 }

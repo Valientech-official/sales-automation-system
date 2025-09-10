@@ -2,8 +2,8 @@ name: Sales Automation Cron Job
 
 on:
   schedule:
-    # 2分間隔で実行 (UTCタイムゾーン)
-    - cron: '*/2 * * * *'
+    # 5分間隔で実行 (UTCタイムゾーン) - GitHub Actions最小間隔
+    - cron: '*/5 * * * *'
   workflow_dispatch: # 手動実行も可能
 
 jobs:

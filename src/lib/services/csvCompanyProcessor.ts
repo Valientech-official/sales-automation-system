@@ -9,6 +9,7 @@ import csv from 'csv-parser'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { chromium } from 'playwright'
 import { getPlaywrightBrowser } from '../playwright-config'
+import * as iconv from 'iconv-lite'
 
 // 政府法人番号データの型定義（北海道CSVフォーマット）
 export interface CorporateRecord {
@@ -99,10 +100,10 @@ export class CSVCompanyProcessor {
         return
       }
 
-      fs.createReadStream(csvPath, { encoding: 'utf8' })
+      fs.createReadStream(csvPath)
+        .pipe(iconv.decodeStream('shift_jis'))
         .pipe(csv({ 
-          headers: false,  // 政府CSVはヘッダーなし
-          skipEmptyLines: true
+          headers: false  // 政府CSVはヘッダーなし
         }))
         .on('data', (row) => {
           // 政府法人番号CSV標準フォーマット（配列インデックスで取得）
@@ -145,8 +146,12 @@ export class CSVCompanyProcessor {
             住所: `${row[10] || ''}${row[11] || ''}${row[12] || ''}`.trim()
           }
           
-          // 法人名があり、最新データ（latest=1）のみを取得
-          if (record.corporateName && record.latest === '1') {
+          // 法人名があるデータを取得（デバッグ用に条件を緩和）
+          if (record.corporateName || record.法人名) {
+            // デバッグ情報を出力
+            if (records.length < 3) {
+              console.log(`📋 デバッグ[${records.length}]: 法人名="${record.corporateName || record.法人名}", latest="${record.latest}"`)
+            }
             records.push(record)
           }
         })
@@ -181,8 +186,8 @@ export class CSVCompanyProcessor {
       
       console.log(`🔍 4段階処理開始: ${companyName} (${cityName})`)
 
-      // Phase 1: 求人募集確認
-      console.log('📋 Phase 1: 求人募集確認')
+      // Phase 1: 企業特定求人募集確認（3段階検証システム）
+      console.log('🎯 Phase 1: 企業特定求人募集確認（3段階検証システム）')
       const hasJobPosting = await this.checkJobPosting(page, companyName, cityName)
       if (!hasJobPosting) {
         await page.close()
@@ -230,42 +235,211 @@ export class CSVCompanyProcessor {
   }
 
   /**
-   * Phase 1: 求人募集確認（スクロール検知）
+   * Phase 1: 企業特定求人募集確認（3段階検証システム）
    */
   private async checkJobPosting(page: any, companyName: string, cityName: string): Promise<boolean> {
     try {
-      await page.goto('https://duckduckgo.com/')
-      await page.waitForTimeout(2000)
-
-      const searchQuery = `"${companyName}" "${cityName}" 求人 採用`
-      console.log(`🔎 求人検索: ${searchQuery}`)
-
-      await page.fill('input[name="q"]', searchQuery)
-      await page.press('input[name="q"]', 'Enter')
-      await page.waitForTimeout(5000)
-
-      // 求人関連キーワードをスクロールしながら検索
-      const jobKeywords = ['求人', '採用', '募集', 'indeed', 'mynavi', 'rikunabi', '転職']
+      console.log(`🎯 Phase 1: 企業特定求人募集確認開始`)
       
-      for (let i = 0; i < 3; i++) {
-        const content = await page.content()
-        const hasJobKeyword = jobKeywords.some(keyword => content.includes(keyword))
+      // Stage 1: DuckDuckGo厳密検索クエリ
+      const strictJobQueries = [
+        `"${companyName}" intitle:求人 site:indeed.com`,
+        `"${companyName}" intitle:採用 site:rikunabi.com`,
+        `"${companyName}" 正社員 採用 site:doda.com`,
+        `"${companyName}" 募集 -site:townwork.net -site:baitoru.com`, // アルバイト系除外
+        `"${companyName}" ${cityName} 求人 OR 採用`
+      ]
+
+      for (const query of strictJobQueries) {
+        console.log(`🔍 厳密検索: ${query}`)
+        const hasValidJobPosting = await this.searchAndVerifyJobPosting(page, query, companyName)
         
-        if (hasJobKeyword) {
-          console.log('✅ 求人募集確認')
+        if (hasValidJobPosting) {
+          console.log('✅ 企業特定の求人募集を確認')
           return true
         }
         
-        // スクロール
-        await page.evaluate(() => window.scrollBy(0, window.innerHeight))
-        await page.waitForTimeout(2000)
+        await page.waitForTimeout(1000) // レート制限対策
       }
 
-      console.log('❌ 求人募集なし')
+      console.log('❌ 企業特定の求人募集なし')
       return false
       
     } catch (error) {
       console.error('求人確認エラー:', error)
+      return false
+    }
+  }
+
+  /**
+   * 検索・転職サイト深掘り・AI検証の統合メソッド
+   */
+  private async searchAndVerifyJobPosting(page: any, query: string, companyName: string): Promise<boolean> {
+    try {
+      await page.goto('https://duckduckgo.com/')
+      await page.waitForTimeout(2000)
+
+      await page.fill('input[name="q"]', query)
+      await page.press('input[name="q"]', 'Enter')
+      await page.waitForTimeout(5000)
+
+      // 検索結果が全くない場合の早期チェック
+      const content = await page.content()
+      if (content.includes('No results') || content.includes('検索結果が見つかりません') || content.includes('何も見つかりませんでした') || content.includes('に関する結果は見つかりませんでした。')) {
+        console.log('❌ 検索結果なし - 早期終了してスプレッドシート保存')
+        return false
+      }
+
+      // Stage 2: 転職サイト検出と深掘り検証
+      const jobSiteResults = await this.extractJobSiteLinks(page)
+      
+      for (const jobSite of jobSiteResults) {
+        console.log(`🏢 転職サイト深掘り検証: ${jobSite.url}`)
+        
+        const isValidCompanyJob = await this.verifyJobSiteContent(page, jobSite, companyName)
+        if (isValidCompanyJob) {
+          return true
+        }
+      }
+
+      // Stage 3: 検索結果内の企業名密度チェック
+      const companyMentionCount = this.countCompanyMentions(content, companyName)
+      
+      if (companyMentionCount >= 3) {
+        console.log(`🎯 検索結果内企業名密度OK (${companyMentionCount}回言及)`)
+        
+        // AI意味解析による最終検証
+        const aiVerification = await this.verifyWithGeminiAI(content, companyName)
+        return aiVerification
+      }
+
+      return false
+      
+    } catch (error) {
+      console.error('検索検証エラー:', error)
+      return false
+    }
+  }
+
+  /**
+   * 転職サイトのリンクを抽出
+   */
+  private async extractJobSiteLinks(page: any): Promise<Array<{url: string, title: string}>> {
+    try {
+      const jobSiteDomains = ['indeed.com', 'rikunabi.com', 'mynavi.jp', 'doda.com', 'en-japan.com', 'bizreach.co.jp']
+      
+      const jobSiteLinks = await page.evaluate((domains: string[]) => {
+        const links: Array<{url: string, title: string}> = []
+        const results = document.querySelectorAll('a[data-testid="result-title-a"]')
+        
+        results.forEach((link: any) => {
+          const href = link.href
+          const title = link.textContent || ''
+          
+          if (domains.some(domain => href.includes(domain))) {
+            links.push({ url: href, title: title })
+          }
+        })
+        
+        return links.slice(0, 3) // 最大3サイトまで
+      }, jobSiteDomains)
+
+      return jobSiteLinks
+    } catch (error) {
+      console.error('転職サイトリンク抽出エラー:', error)
+      return []
+    }
+  }
+
+  /**
+   * 転職サイト内容の企業特定性検証
+   */
+  private async verifyJobSiteContent(page: any, jobSite: {url: string, title: string}, companyName: string): Promise<boolean> {
+    try {
+      await page.goto(jobSite.url)
+      await page.waitForTimeout(3000)
+
+      const pageContent = await page.content()
+      
+      // 企業名の出現頻度をカウント
+      const companyMentions = this.countCompanyMentions(pageContent, companyName)
+      
+      // 他社名の出現をチェック（競合判定）
+      const competitorMentions = this.countCompetitorMentions(pageContent, companyName)
+      
+      console.log(`📊 企業名言及: ${companyMentions}回, 他社言及: ${competitorMentions}回`)
+      
+      // 企業名言及が多く、他社言及が少ない場合は有効
+      return companyMentions >= 3 && companyMentions > competitorMentions
+      
+    } catch (error) {
+      console.error('転職サイト内容検証エラー:', error)
+      return false
+    }
+  }
+
+  /**
+   * 企業名の出現回数をカウント
+   */
+  private countCompanyMentions(content: string, companyName: string): number {
+    const cleanCompanyName = companyName.replace(/株式会社|有限会社|合同会社|合資会社|合名会社/g, '').trim()
+    const regex = new RegExp(cleanCompanyName, 'gi')
+    const matches = content.match(regex)
+    return matches ? matches.length : 0
+  }
+
+  /**
+   * 他社名の出現をチェック（簡易版）
+   */
+  private countCompetitorMentions(content: string, companyName: string): number {
+    const competitors = ['株式会社', '有限会社', '合同会社']
+    let count = 0
+    
+    competitors.forEach(prefix => {
+      const regex = new RegExp(`${prefix}[^${companyName}][\\w]{2,10}`, 'g')
+      const matches = content.match(regex)
+      count += matches ? matches.length : 0
+    })
+    
+    return Math.min(count, 10) // 最大10回まで
+  }
+
+  /**
+   * Gemini AIによる求人内容の意味解析
+   */
+  private async verifyWithGeminiAI(content: string, companyName: string): Promise<boolean> {
+    try {
+      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+        console.log('⚠️ Gemini AI APIキーなし - AIチェックスキップ')
+        return false
+      }
+
+      const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY)
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+
+      const prompt = `
+以下の検索結果を分析して、「${companyName}」という会社の求人募集情報が実際に含まれているかを判定してください。
+
+判定基準:
+1. その企業名が明確に記載されている
+2. その企業の求人・採用情報である
+3. 地域の一般的な求人情報ではない
+4. 他社の求人情報ではない
+
+以下の検索結果:
+${content.substring(0, 3000)}
+
+回答は「true」または「false」のみで答えてください。
+`
+
+      const result = await model.generateContent(prompt)
+      const aiResponse = result.response.text().trim().toLowerCase()
+      
+      console.log(`🤖 AI判定結果: ${aiResponse}`)
+      return aiResponse.includes('true')
+      
+    } catch (error) {
+      console.error('AI検証エラー:', error)
       return false
     }
   }
@@ -276,9 +450,9 @@ export class CSVCompanyProcessor {
   private async getOfficialContact(page: any, companyName: string, cityName: string): Promise<any> {
     try {
       const searchQueries = [
-        `"${companyName}" "${cityName}" プライバシーポリシー`,
-        `"${companyName}" "${cityName}" 利用規約`,
-        `"${companyName}" "${cityName}" 会社概要 site:${companyName.replace(/株式会社|有限会社/g, '').trim()}.co.jp`
+        `${companyName} ${cityName} プライバシーポリシー`,
+        `${companyName} ${cityName} 利用規約`,
+        `${companyName} ${cityName} 会社概要 site:${companyName.replace(/株式会社|有限会社/g, '').trim()}.co.jp`
       ]
 
       for (const query of searchQueries) {
@@ -332,11 +506,11 @@ export class CSVCompanyProcessor {
    */
   private async tryDirectSearch(page: any, companyName: string, cityName: string): Promise<any> {
     const searchStrategies = [
-      `"${companyName}" "${cityName}" 電話番号`,
-      `"${companyName}" "${cityName}" メールアドレス`,
-      `"${companyName}" "${cityName}" お問い合わせ`,
-      `"${companyName}" "${cityName}" 会社概要`,
-      `"${companyName}" "${cityName}" 連絡先`
+      `${companyName} ${cityName} 電話番号`,
+      `${companyName} ${cityName} メールアドレス`,
+      `${companyName} ${cityName} お問い合わせ`,
+      `${companyName} ${cityName} 会社概要`,
+      `${companyName} ${cityName} 連絡先`
     ]
 
     for (let i = 0; i < searchStrategies.length; i++) {
@@ -409,7 +583,7 @@ export class CSVCompanyProcessor {
       await page.goto('https://duckduckgo.com/')
       await page.waitForTimeout(2000)
       
-      const phoneQuery = `"${contactInfo.phoneNumber}"`
+      const phoneQuery = `${contactInfo.phoneNumber}`
       console.log(`🔎 電話番号逆引き: ${phoneQuery}`)
       
       await page.fill('input[name="q"]', phoneQuery)
