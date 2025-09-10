@@ -1,0 +1,47 @@
+name: Sales Automation Cron Job
+
+on:
+  schedule:
+    # 2分間隔で実行 (UTCタイムゾーン)
+    - cron: '*/2 * * * *'
+  workflow_dispatch: # 手動実行も可能
+
+jobs:
+  process-company:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Execute Sales Automation
+      run: |
+        echo "🚀 営業自動化システム実行開始: $(date)"
+        
+        # Vercel本番環境のAPIを叩く
+        response=$(curl -s -w "HTTPSTATUS:%{http_code}" \
+          "https://sales-automation-system.vercel.app/api/cron-process/")
+        
+        http_code=$(echo $response | tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
+        body=$(echo $response | sed -e 's/HTTPSTATUS:.*//g')
+        
+        echo "📊 HTTPステータス: $http_code"
+        echo "📝 レスポンス: $body"
+        
+        if [ $http_code -eq 200 ]; then
+          echo "✅ 処理成功!"
+          
+          # 成功時はレスポンス内容を解析
+          echo "$body" | jq -r '
+            if .success then
+              "🎯 企業: " + .result.companyName + 
+              " (" + (.result.index + 1 | tostring) + "件目)" +
+              " | 処理時間: " + (.result.executionTime / 1000 | floor | tostring) + "秒" +
+              " | 結果: " + (if .result.scrapingSuccess then "成功" else "失敗: " + .result.error end)
+            else
+              "❌ エラー: " + .error.message
+            end'
+        else
+          echo "❌ 処理失敗! HTTPコード: $http_code"
+          echo "$body"
+          exit 1
+        fi
+        
+        echo "✨ 営業自動化システム実行完了: $(date)"
